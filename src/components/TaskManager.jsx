@@ -2,57 +2,147 @@ import React, { useState, useEffect } from 'react';
 import Button from './Button';
 
 /**
- * Custom hook for managing tasks with localStorage persistence
+ * Custom hook for managing tasks with API integration
  */
-const useLocalStorageTasks = () => {
-  // Initialize state from localStorage or with empty array
-  const [tasks, setTasks] = useState(() => {
-    const savedTasks = localStorage.getItem('tasks');
-    return savedTasks ? JSON.parse(savedTasks) : [];
-  });
+const useApiTasks = () => {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Update localStorage when tasks change
-  useEffect(() => {
-    localStorage.setItem('tasks', JSON.stringify(tasks));
-  }, [tasks]);
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+  // Fetch tasks from API
+  const fetchTasks = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/tasks`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch tasks');
+      }
+      const data = await response.json();
+      setTasks(data);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+      console.error('Error fetching tasks:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Add a new task
-  const addTask = (text) => {
-    if (text.trim()) {
-      setTasks([
-        ...tasks,
-        {
-          id: Date.now(),
-          text,
-          completed: false,
-          createdAt: new Date().toISOString(),
+  const addTask = async (title, description = '') => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      ]);
+        body: JSON.stringify({ title, description }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to add task');
+      }
+      
+      const newTask = await response.json();
+      setTasks([newTask, ...tasks]);
+      return newTask;
+    } catch (err) {
+      setError(err.message);
+      console.error('Error adding task:', err);
+      throw err;
     }
   };
 
   // Toggle task completion status
-  const toggleTask = (id) => {
-    setTasks(
-      tasks.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task
-      )
-    );
+  const toggleTask = async (id) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${id}/toggle`, {
+        method: 'PATCH',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to toggle task');
+      }
+      
+      const updatedTask = await response.json();
+      setTasks(tasks.map(task => 
+        task._id === id ? updatedTask : task
+      ));
+    } catch (err) {
+      setError(err.message);
+      console.error('Error toggling task:', err);
+    }
   };
 
   // Delete a task
-  const deleteTask = (id) => {
-    setTasks(tasks.filter((task) => task.id !== id));
+  const deleteTask = async (id) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete task');
+      }
+      
+      setTasks(tasks.filter(task => task._id !== id));
+    } catch (err) {
+      setError(err.message);
+      console.error('Error deleting task:', err);
+    }
   };
 
-  return { tasks, addTask, toggleTask, deleteTask };
+  // Update a task
+  const updateTask = async (id, updates) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tasks/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to update task');
+      }
+      
+      const updatedTask = await response.json();
+      setTasks(tasks.map(task => 
+        task._id === id ? updatedTask : task
+      ));
+      return updatedTask;
+    } catch (err) {
+      setError(err.message);
+      console.error('Error updating task:', err);
+      throw err;
+    }
+  };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchTasks();
+  }, []);
+
+  return { 
+    tasks, 
+    loading, 
+    error, 
+    addTask, 
+    toggleTask, 
+    deleteTask, 
+    updateTask,
+    refetch: fetchTasks
+  };
 };
 
 /**
  * TaskManager component for managing tasks
  */
 const TaskManager = () => {
-  const { tasks, addTask, toggleTask, deleteTask } = useLocalStorageTasks();
+  const { tasks, loading, error, addTask, toggleTask, deleteTask } = useApiTasks();
   const [newTaskText, setNewTaskText] = useState('');
   const [filter, setFilter] = useState('all');
 
@@ -64,15 +154,38 @@ const TaskManager = () => {
   });
 
   // Handle form submission
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    addTask(newTaskText);
-    setNewTaskText('');
+    if (newTaskText.trim()) {
+      try {
+        await addTask(newTaskText.trim());
+        setNewTaskText('');
+      } catch (err) {
+        // Error is handled in the hook
+      }
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">Loading tasks...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
       <h2 className="text-2xl font-bold mb-6">Task Manager</h2>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+          Error: {error}
+        </div>
+      )}
 
       {/* Task input form */}
       <form onSubmit={handleSubmit} className="mb-6">
@@ -97,21 +210,21 @@ const TaskManager = () => {
           size="sm"
           onClick={() => setFilter('all')}
         >
-          All
+          All ({tasks.length})
         </Button>
         <Button
           variant={filter === 'active' ? 'primary' : 'secondary'}
           size="sm"
           onClick={() => setFilter('active')}
         >
-          Active
+          Active ({tasks.filter(t => !t.completed).length})
         </Button>
         <Button
           variant={filter === 'completed' ? 'primary' : 'secondary'}
           size="sm"
           onClick={() => setFilter('completed')}
         >
-          Completed
+          Completed ({tasks.filter(t => t.completed).length})
         </Button>
       </div>
 
@@ -124,28 +237,35 @@ const TaskManager = () => {
         ) : (
           filteredTasks.map((task) => (
             <li
-              key={task.id}
+              key={task._id}
               className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 dark:border-gray-700"
             >
               <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
                   checked={task.completed}
-                  onChange={() => toggleTask(task.id)}
+                  onChange={() => toggleTask(task._id)}
                   className="h-5 w-5 text-blue-600 rounded focus:ring-blue-500"
                 />
-                <span
-                  className={`${
-                    task.completed ? 'line-through text-gray-500 dark:text-gray-400' : ''
-                  }`}
-                >
-                  {task.text}
-                </span>
+                <div>
+                  <span
+                    className={`${
+                      task.completed ? 'line-through text-gray-500 dark:text-gray-400' : ''
+                    }`}
+                  >
+                    {task.title}
+                  </span>
+                  {task.description && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      {task.description}
+                    </p>
+                  )}
+                </div>
               </div>
               <Button
                 variant="danger"
                 size="sm"
-                onClick={() => deleteTask(task.id)}
+                onClick={() => deleteTask(task._id)}
                 aria-label="Delete task"
               >
                 Delete
