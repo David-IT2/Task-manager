@@ -127,7 +127,7 @@ A modern task management application built with React, Node.js, Express, and Mon
 
 ### Frontend (.env)
 ```env
-VITE_API_URL=http://localhost:5000/api
+VITE_API_URL=https://task-manager-ebon-eight.vercel.app/
 ```
 
 ### Backend (.env)
